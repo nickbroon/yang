@@ -1,0 +1,278 @@
+module vyatta-policy-vlan-modify-v1 {
+	namespace "urn:vyatta.com:mgmt:vyatta-policy-vlan-modify:1";
+	prefix vyatta-policy-vlan-modify-v1;
+
+	import vyatta-policy-v1 {
+		prefix policy;
+	}
+	import configd-v1 {
+		prefix configd;
+	}
+	import vyatta-interfaces-v1 {
+		prefix if;
+	}
+	import vyatta-interfaces-dataplane-v1 {
+		prefix interfaces-dataplane;
+	}
+	import vyatta-interfaces-dataplane-switch-v1 {
+		prefix dp-sw;
+	}
+	import vyatta-interfaces-switch-policy-v1 {
+		prefix sw-pol;
+	}
+	import vyatta-types-v1 {
+		prefix types;
+	}
+
+	organization "AT&T, Inc.";
+	contact
+		"AT&T
+		 Postal: 208 S. Akard Street
+		 Dallas, TX 25202
+		 Web: www.att.com";
+
+	description
+		"Copyright (c) 2019 AT&T Intellectual Property
+		 All rights reserved.
+
+		 Redistribution and use in source and binary forms, with or without
+		 modification, are permitted provided that the following conditions
+		 are met:
+
+		     1. Redistributions of source code must retain the above copyright
+			notice, this list of conditions and the following disclaimer.
+		     2. Redistributions in binary form must reproduce the above
+			copyright notice, this list of conditions and the following
+			disclaimer in the documentation and/or other materials provided
+			with the distribution.
+		     3. Neither the name of the copyright holder nor the names of its
+			contributors may be used to endorse or promote products derived
+			from this software without specific prior written permission.
+
+		     THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+		     'AS IS' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+		     LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
+		     FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
+		     COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
+		     INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+		     BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+		     LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+		     CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+		     LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN
+		     ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+		     POSSIBILITY OF SUCH DAMAGE.
+
+		 SPDX-License-Identifier: BSD-3-Clause
+
+		 The YANG module package for vyatta-policy-vlan-modify-v1";
+
+	revision 2019-10-10 {
+		description "Add policy parameter when calling vlan modify script";
+	}
+	revision 2019-07-22 {
+		description "Initial revision of version 1";
+	}
+
+	typedef dir-enum {
+		type enumeration {
+			enum "ingress" {
+				description "Apply policy in ingress direction";
+				configd:help  "Apply policy in ingress direction";
+			}
+			enum "egress" {
+				description "Apply policy in egress direction";
+				configd:help  "Apply policy in egress direction";
+			}
+		}
+	}
+	typedef rule-type {
+		type uint32 {
+			range 1..9999;
+			configd:help "Rule number";
+		}
+	}
+	typedef vlan-any {
+		type union {
+			type types:vlan;
+			type enumeration {
+				configd:help "default selector any if no other vlan matches";
+				enum "any";
+			}
+		}
+	}
+	typedef action-enum {
+		type enumeration {
+			enum "pop" {
+				description "Action pop";
+				configd:help  "Action pop";
+			}
+			enum "push" {
+				description "Action push";
+				configd:help  "Action push";
+			}
+			enum "swap" {
+				description "Action swap";
+				configd:help  "Action swap";
+			}
+		}
+	}
+	grouping action-param {
+		leaf vlan-id {
+			description "vlan id used for the action";
+			configd:help "vlan id used for the action";
+			type types:vlan;
+		}
+		leaf tag-protocol-id {
+			description "tag-protocol-id used for the action";
+			configd:help "tag-protocol-id used for the action";
+			type enumeration {
+				enum "0x8100" {
+					configd:help "IEEE 802.1Q";
+					description "IEEE 802.1Q";
+				}
+				enum "0x88A8" {
+					configd:help "IEEE 802.1ad (QinQ)";
+					description "IEEE 802.1ad (QinQ)";
+				}
+				enum "0x88a8" {
+					configd:help "IEEE 802.1ad (QinQ)";
+					description "IEEE 802.1ad (QinQ)";
+				}
+			}
+		}
+		leaf pcp {
+			description "pcp value used for the action";
+			configd:help "pcp value used for the action";
+			type uint8 {
+				range 0..7;
+				configd:help "Priority control point value";
+			}
+		}
+	}
+	augment /policy:policy {
+		list vlan-modify {
+			description "vlan-modification policy";
+			configd:help "vlan-modification policy";
+			configd:end "vyatta-vlan-modify --policy $VAR(@)";
+			key name;
+			leaf name {
+				type string;
+			}
+			list rule {
+				unique "selector/vlan-id direction";
+				description "rule number for vlan-modification policy";
+				configd:help "rule number for vlan-modification policy";
+				must "(action)" {
+					error-message "action is mandatory for vlan-modify policy";
+				}
+				must "count(action/*) = 1" {
+					error-message "one action  per rule  in vlan-modify policy";
+				}
+				key rule-num;
+				leaf rule-num {
+					type rule-type;
+				}
+				container selector {
+					description "Selectors used for packet matching for the policy";
+					configd:help "Selectors used for policy matching";
+					leaf vlan-id {
+						mandatory true;
+						description "vlan for policy matching";
+						configd:help "vlan selector for policy matching";
+						type vlan-any;
+					}
+				}
+				container action {
+					description "Action if rule selector matches";
+					configd:help "Action if rule selector matches";
+					container push {
+						presence "push action";
+						must "(vlan-id)" {
+							error-message "vlan-id should be defined for action push";
+						}
+						description "push vlan action";
+						configd:help "push vlan action";
+						uses action-param;
+					}
+					leaf pop {
+						type empty;
+						description "pop vlan action";
+						configd:help "pop vlan action";
+					}
+					container swap {
+						presence "swap action";
+						must "(vlan-id)" {
+							error-message "vlan-id should be defined for action swap";
+						}
+						description "swap vlan action";
+						configd:help "swap vlan action";
+						uses action-param;
+					}
+				}
+				leaf direction {
+					mandatory true;
+					description "Direction of the policy";
+					configd:help "Direction of the policy";
+					type dir-enum;
+				}
+			}
+		}
+	}
+	augment /if:interfaces/interfaces-dataplane:dataplane/dp-sw:switch-group/dp-sw:port-parameters/sw-pol:policy {
+		list vlan-modify {
+			max-elements 1;
+			key name;
+			leaf name {
+				type leafref {
+					path "/policy:policy/vlan-modify/name";
+				}
+				must "../../../dp-sw:mode = 'trunk'" {
+					error-message "vlan-modify policy can only be applied to trunk ports";
+				}
+			}
+			configd:help "Vlan-modify policy name for interface";
+			configd:end "vyatta-vlan-modify --policy '$VAR(@)' --interface '$VAR(../../../../@)'";
+		}
+	}
+	augment /if:interfaces {
+		container vlan-modify-state {
+			config false;
+			configd:get-state "vyatta-vlan-modify-get-state";
+			description "Operational state for vlan-modify policy";
+			list intfs {
+				key name;
+				leaf name {
+					type string;
+				}
+				list rule {
+					description "Vlan modification Filter rule programmed in the system";
+					key priority-val;
+					leaf priority-val {
+						description "Priority associated and programmed for the filter rule";
+						type uint32 {
+							range 1..10001;
+						}
+					}
+					container selector {
+						description "Selectors used for packet matching for the policy";
+						leaf vlan-id {
+							type vlan-any;
+						}
+					}
+					container action {
+						description "Action if rule selector matches";
+						leaf type {
+							description "vlan action type";
+							type action-enum;
+						}
+						uses action-param;
+					}
+					leaf direction {
+						description "Direction of the policy rule";
+						type dir-enum;
+					}
+				}
+			}
+		}
+	}
+}
