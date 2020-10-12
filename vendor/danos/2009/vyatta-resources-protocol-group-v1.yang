@@ -1,0 +1,98 @@
+submodule vyatta-resources-protocol-group-v1 {
+	belongs-to vyatta-resources-group-v1 {
+		prefix res-group;
+	}
+
+	import vyatta-resources-v1 {
+		prefix resources;
+	}
+
+	import configd-v1 {
+		prefix configd;
+	}
+
+	import vyatta-fw-types-v1 {
+		prefix fw-types;
+	}
+
+	include vyatta-resources-group-misc-v1;
+
+	organization "AT&T Inc.";
+	contact
+		"AT&T
+		 Postal: 208 S. Akard Street
+		         Dallas, TX 75202, USA
+		 Web: www.att.com";
+
+	description
+		"Copyright (c) 2019, AT&T Intellectual Property.
+		 All rights reserved.
+
+		 Redistribution and use in source and binary forms,
+		 with or without modification, are permitted provided
+		 that the following conditions are met:
+
+		 1. Redistributions of source code must retain the
+		    above copyright notice, this list of conditions and
+		    the following disclaimer.
+		 2. Redistributions in binary form must reproduce
+		    the above copyright notice, this list of conditions
+		    and the following disclaimer in the documentation
+		    and/or other materials provided with the distribution.
+		 3. Neither the name of the copyright holder nor the
+		    names of its contributors may be used to endorse or
+		    promote products derived from this software without
+		    specific prior written permission.
+
+		 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS
+		 AND CONTRIBUTORS 'AS IS' AND ANY EXPRESS OR IMPLIED
+		 WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+		 WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A
+		 PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL
+		 THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR
+		 ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY,
+		 OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED
+		 TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS
+		 OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+		 HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER
+		 IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+		 NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE
+		 USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY
+		 OF SUCH DAMAGE.
+
+		 SPDX-License-Identifier: BSD-3-Clause
+
+		 The YANG submodule package for Vyatta resource groups";
+
+	revision 2019-12-09 {
+		description "Initial revision: moved protocol-group list
+			     into submodule";
+	}
+
+	augment /resources:resources/group {
+		list protocol-group {
+			description "Group of IP L4 protocols";
+			configd:help "Group of IP L4 protocols";
+			key "group-name";
+			leaf group-name {
+				type fw-types:group-name;
+				description "Group name for IP L4 protocols";
+				configd:help "Group name for IP L4 protocols";
+			}
+			leaf description {
+				type string;
+				description "Protocol group description";
+				configd:help "Protocol group description";
+			}
+			leaf-list protocol {
+				type string {
+					configd:syntax "syntax-check-protocols";
+				}
+				description "IP L4 protocol to match";
+				configd:help "IP L4 protocol to match";
+				configd:allowed "allowed-protocols";
+				min-elements 1;
+			}
+		}
+	}
+}

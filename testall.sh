@@ -5,6 +5,7 @@
 #
 
 ./vendor/fujitsu/yang-validate.sh
+./vendor/danos/check.sh
 ./vendor/cisco/nx/check.sh
 ./vendor/cisco/xr/check.sh
 ./vendor/cisco/xe/check.sh

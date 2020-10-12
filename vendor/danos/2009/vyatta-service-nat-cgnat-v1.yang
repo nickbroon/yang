@@ -1,0 +1,1907 @@
+module vyatta-service-nat-cgnat-v1 {
+    namespace "urn:vyatta.com:mgmt:vyatta-service-nat-cgnat:1";
+    prefix vyatta-service-nat-cgnat-v1;
+
+    import configd-v1 {
+        prefix configd;
+    }
+    import ietf-inet-types {
+        prefix inet;
+    }
+    import vyatta-fw-types-v1 {
+        prefix fw-types;
+    }
+    import vyatta-types-v1 {
+        prefix types;
+    }
+    import vyatta-resources-v1 {
+        prefix resources;
+    }
+    import vyatta-resources-group-v1 {
+        prefix res-group;
+    }
+    import vyatta-services-v1 {
+        prefix service;
+    }
+    import vyatta-service-nat-v1 {
+        prefix nat;
+    }
+    import vyatta-service-nat-pool-v1 {
+        prefix nat-pool;
+    }
+    import vyatta-routing-v1 {
+        prefix routing;
+    }
+    import vyatta-system-v1 {
+        prefix system;
+    }
+
+    organization "AT&T Inc.";
+    contact
+        "AT&T
+         Postal: 208 S. Akard Street
+                 Dallas, TX 75202, USA
+         Web: www.att.com";
+
+    description
+        "Copyright (c) 2019-2020, AT&T Intellectual Property.
+        All rights reserved.
+
+        Redistribution and use in source and binary forms,
+        with or without modification, are permitted provided
+        that the following conditions are met:
+
+        1. Redistributions of source code must retain the
+           above copyright notice, this list of conditions and
+           the following disclaimer.
+        2. Redistributions in binary form must reproduce
+           the above copyright notice, this list of conditions
+           and the following disclaimer in the documentation
+           and/or other materials provided with the distribution.
+        3. Neither the name of the copyright holder nor the
+           names of its contributors may be used to endorse or
+           promote products derived from this software without
+           specific prior written permission.
+
+        THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS
+        AND CONTRIBUTORS 'AS IS' AND ANY EXPRESS OR IMPLIED
+        WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+        WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A
+        PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL
+        THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR
+        ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY,
+        OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED
+        TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS
+        OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+        HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER
+        IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+        NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE
+        USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY
+        OF SUCH DAMAGE.
+
+        SPDX-License-Identifier: BSD-3-Clause
+
+        YANG module for CGNAT configuration";
+
+    revision 2020-06-11 {
+        description "Change max-dest-per-session range.  Upper limit now 128.";
+    }
+
+    revision 2020-04-06 {
+        description "Obsolete pool-addr-echo-req error state. " +
+                    "Obsolete public-address-locked-on-destroy error state. " +
+                    "Obsolete state too-short-packet error state. " +
+                    "Add pool-addr-echo-req summary state. " +
+                    "Obsolete mapping-table resource warning config. " +
+                    "Obsolete public-address-mappings-max state. " +
+                    "Add sub-sess-created and sub-sess-destroyed " +
+                    "to subscriber, policy and summary. " +
+                    "Add per-port TCP and UDP timeouts.";
+    }
+
+    revision 2020-02-20 {
+        description "Add sess-ht-created and sess-ht-destroyed to summary.";
+    }
+
+    revision 2019-12-05 {
+        description "Add CGNAT off-box logging commands. " +
+                    "Rework CGNAT CLI. " +
+                    "Add destination params to filter. " +
+                    "Add global alg-bypass config. " +
+                    "Add clear-errors-rpc. " +
+                    "Add packets-not-cgnat, pcp-ok, pcp-fail to summary. " +
+                    "Add PCP errors to error stats. " +
+                    "Add configd:priority to system export. " +
+                    "Add op-mode counters for unknown source pkts. " +
+                    "Add core configuration for CGNAT session logging. ";
+    }
+
+    revision 2019-09-23 {
+        description "Add CGNAT resource warnings." +
+                    "Add 1 minute max rate to subscriber RPC info." +
+                    "Add max-rate fields to policy RPC information. " +
+                    "Add rpc clear commands for policy and suscriber. " +
+                    "Address-group replaces ip-address in policy match. " +
+                    "Limit length of CGNAT policy name.";
+    }
+
+    revision 2019-07-19 {
+        description "Add state history to session RPC info. " +
+                    "Add more fields to global state information. " +
+                    "Add more fields to subscriber RPC output.";
+    }
+
+    revision 2019-07-09 {
+        description "Initial revision.";
+    }
+
+    typedef timeout {
+        type uint32 {
+            range 1..max;
+        }
+        units "seconds";
+    }
+
+    typedef threshold_percent {
+        type uint8 {
+            range "1..99";
+        }
+        units "percent";
+    }
+
+    typedef ipv4-addr-or-prefix {
+        type union {
+            type inet:ipv4-address-no-zone;
+            type inet:ipv4-prefix;
+        }
+    }
+
+    typedef timeout-port {
+        type types:port;
+    }
+
+    typedef pool-protocol {
+        type enumeration {
+            enum "tcp" {
+                description "TCP protocol";
+            }
+            enum "udp" {
+                description "UDP protocol";
+            }
+            enum "other" {
+                description "Non-UDP/TCP protocols";
+            }
+        }
+    }
+
+    typedef cgnat-errors {
+        type enumeration {
+            enum "untranslatable-subscriber" {
+                description "The subscriber address of the packet did not " +
+                            "match a CGNAT policy (untranslatable)";
+            }
+            enum "untranslatable-session" {
+                description "The packet did not match a " +
+                            "CGNAT session (untranslatable)";
+            }
+            enum "untranslatable-IP" {
+                description "The IP protocol field contains a protocol that " +
+                            "could not be translated (untranslatable)";
+            }
+            enum "untranslatable-ICMP" {
+                description "Non-echo ICMP request/reply packets received, " +
+                            "so could not be translated (untranslatable)";
+            }
+            enum "subscriber-port-block-limit" {
+                description "Subscriber did not have a session created as " +
+                            "the maximum port-block limited was reached " +
+                            "(resource limitation)";
+            }
+            enum "port-block-exhausted" {
+                description "There are no free port blocks on the selected " +
+                            "public address (resource limitation)";
+            }
+            enum "public-addresses-exhausted" {
+                description "There are no free public addresses in the NAT " +
+                            "pool (resource limitation)";
+            }
+            enum "subscriber-table-full" {
+                description "Failure to add a subscriber because all " +
+                            "entries are in use (resource limitation)";
+            }
+            enum "mapping-table-full" {
+                status obsolete;
+                description "This is no longer used, and should be ignored";
+            }
+            enum "session-table-full" {
+                description "Failure to allocate a session because all " +
+                            "entries are in use (resource limitation)";
+            }
+            enum "dest-session-table-full" {
+                description "Failure to allocate a destination session " +
+                            "because all entries are in use (resource " +
+                            "limitation)";
+            }
+            enum "session-allocation" {
+                description "Failure to allocate resources for a session " +
+                            "(memory allocation)";
+            }
+            enum "dest-session-allocation" {
+                description "Failure to allocate resources for a destination " +
+                            "session (memory allocation)";
+            }
+            enum "port-block-allocation" {
+                description "Failure to allocate resources for a port block " +
+                            "(memory allocation)";
+            }
+            enum "public-address-allocation" {
+                description "Failure to allocate resources for a public " +
+                            "address (memory allocation)";
+            }
+            enum "subscriber-allocation" {
+                description "Failure to allocate resources for a subscriber " +
+                            "address (memory allocation)";
+            }
+            enum "session-lost-race" {
+                description "Lost race to insert a session into the table " +
+                            "(thread contention)";
+            }
+            enum "dest-session-lost-race" {
+                description "Lost race to insert a destination session into " +
+                            "the table (thread contention)";
+            }
+            enum "public-address-locked-on-destroy" {
+                status obsolete;
+                description "Public address was destroyed while waiting for " +
+                            "lock (thread contention)";
+            }
+            enum "subscriber-address-locked-on-destroy" {
+                description "Subscriber address was destroyed while waiting " +
+                            "for lock (thread contention)";
+            }
+            enum "no-IP-header" {
+                description "Packet does not contain an IP header (packet " +
+                            "buffer)";
+            }
+            enum "no-L4-header" {
+                description "Packet does not contain a layer 4 header " +
+                            "(packet buffer)";
+            }
+            enum "header-allocation" {
+                description "Failed to allocation a buffer for header " +
+                            "manipulation (packet buffer)";
+            }
+            enum "too-short-packet" {
+                status obsolete;
+                description "Failed to NAT the packet as it was too short " +
+                            "(packet buffer)";
+            }
+            enum "unknown" {
+                description "An unknown or unexpected error occurred " +
+                            "(other)";
+            }
+            enum "pool-addr-echo-req" {
+                status obsolete;
+                description "ICMP Echo Request for a CGNAT pool address";
+            }
+            enum "alg-packet" {
+                description "The packet is an ALG packet configured " +
+                            "to bypass CGNAT";
+            }
+            enum "pcp-invalid-cmd" {
+                description "Invalid or unknown PCP parameters";
+            }
+            enum "pcp-mapping-unavailable" {
+                description "Unable to reserve PCP mapping";
+            }
+        }
+    }
+
+    grouping cgnat-log-type {
+        container using {
+            description  "Export using ...";
+            configd:help "Export using ...";
+            container kafka {
+                description  "Log type Kafka";
+                configd:help "Log type Kafka";
+                presence "min elements in cluster";
+                list cluster {
+                    description  "Configure cluster";
+                    configd:help "Configure cluster";
+                    min-elements 1;
+                    key "clustername";
+                    leaf clustername {
+                        description  "Cluster name";
+                        configd:help "Cluster name";
+                        type leafref {
+                            path "/system:system/export/kafka/cluster/clustername";
+                        }
+                    }
+                }
+                container with {
+                    description  "Kafka options";
+                    configd:help "Kafka options";
+                    leaf topic {
+                        description  "Configure Kafka topic";
+                        configd:help "Configure Kafka topic";
+                        type string {
+                            length 1..249;
+                            pattern '[a-zA-Z0-9._-]*' {
+                                error-message "Use only alphanumeric characters, dot, hyphen, or underscore";
+                            }
+                        }
+                        mandatory true;
+                    }
+                    leaf field-delimiter {
+                        description  "Configure Kafka field delimiter";
+                        configd:help "Configure Kafka field delimiter";
+                        type string {
+                            length 1..8;
+                            pattern '[a-zA-Z0-9._-]*' {
+                                error-message "Use only alphanumeric characters, dot, hyphen, or underscore";
+                            }
+                        }
+                    }
+                    leaf priority {
+                        description  "Kafka priority";
+                        configd:help "Kafka priority";
+                        type enumeration {
+                            enum "critical" {
+                                description  "Critical";
+                                configd:help "Critical";
+                            }
+                        }
+                    }
+                    leaf storage-limit {
+                        description  "Kafka storage limit (megabytes)";
+                        configd:help "Kafka storage limit (megabytes)";
+                        type uint32 {
+                            range 1..1048576;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    grouping log-group {
+        container log {
+            status deprecated;
+            description "Configure session and subscriber " +
+                        "logging for CGNAT";
+            configd:help "CGNAT logging";
+            container session {
+                must "not(creation or deletion or periodic) or " +
+                     "count(all-subscribers|address-group) = 1" {
+                    error-message "Either 'all-subscribers' or " +
+                                  "'address-group' must be configured if " +
+                                  "enabling session logging on a CGNAT " +
+                                  "policy";
+                }
+                must "not(all-subscribers or address-group) or " +
+                     "count(creation|deletion|periodic) > 0" {
+                    error-message "At least one of 'creation', 'deletion' " +
+                                  "or 'periodic' must be configured if " +
+                                  "enabling session logging for all " +
+                                  "subscribers or an address group on a " +
+                                  "CGNAT policy";
+                }
+                description "Configure events to log sessions and whether to " +
+                            "log for all subscribers or those in a named " +
+                            "address group";
+                configd:help "CGNAT session logging";
+                leaf creation {
+                    type empty;
+                    description "Log on CGNAT session creation";
+                    configd:help "Log on CGNAT session creation";
+                }
+                leaf deletion {
+                    type empty;
+                    description "Log on CGNAT session deletion";
+                    configd:help "Log on CGNAT session deletion";
+                }
+                leaf periodic {
+                    description "Log sessions at periodic intervals";
+                    configd:help "Log sessions at periodic intervals";
+                    units "seconds";
+                    must "current() mod 10 = 0" {
+                        error-message "The periodic value must be a multiple " +
+                                      "of 10";
+                    }
+                    type uint32 {
+                        range 300..86400;
+                        configd:help "How often to log sessions (in seconds) " +
+                                     "- multiples of 10";
+                    }
+                }
+                leaf all-subscribers {
+                    type empty;
+                    description "Log sessions for all subscribers";
+                    configd:help "Log sessions for all subscribers";
+                }
+                leaf address-group {
+                    description "Log sessions if the subscribers address " +
+                                "matches addresses in the named address-group";
+                    configd:help "The address-group identifying subscriber " +
+                                 "addresses to log sessions";
+                    type leafref {
+                        path "/resources:resources/res-group:group/" +
+                             "res-group:address-group/res-group:tagnode";
+                    }
+                }
+            }
+            leaf subscriber {
+                type empty;
+                description "Log information about the subscriber when the " +
+                            "subscriber is created and deleted";
+                configd:help "Log on CGNAT subscriber creation and deletion";
+            }
+        }
+    }
+
+    grouping event-group {
+        uses log-group;
+        container select {
+            must "not(.) or not(../log)" {
+                error-message "Cannot configure both 'select' and 'log'";
+            }
+            description  "Select";
+            configd:help "Select";
+            container event {
+                description "Configure session and subscriber " +
+                            "events for CGNAT";
+                configd:help "CGNAT events";
+                container session {
+                    must "not(creation or deletion or periodic) or " +
+                         "all-subscribers or address-group" {
+                        error-message "Either 'all-subscribers' or " +
+                                      "'address-group' must be configured if " +
+                                      "enabling session event reporting " +
+                                      "on a CGNAT policy";
+                    }
+                    must "not(all-subscribers or address-group) or " +
+                         "count(creation|deletion|periodic) > 0" {
+                        error-message "At least one of 'creation', 'deletion' " +
+                                      "or 'periodic' must be configured if " +
+                                      "enabling session event reporting for all " +
+                                      "subscribers or an address group on a " +
+                                      "CGNAT policy";
+                    }
+                    description "Configure session events and whether to " +
+                                "raise events for all subscribers " +
+                                "or those in a named address group";
+                    configd:help "CGNAT session event reporting";
+                    leaf creation {
+                        type empty;
+                        description "Log on CGNAT session creation";
+                        configd:help "Log on CGNAT session creation";
+                    }
+                    leaf deletion {
+                        type empty;
+                        description "Log on CGNAT session deletion";
+                        configd:help "Log on CGNAT session deletion";
+                    }
+                    leaf periodic {
+                        description "Log sessions at periodic intervals";
+                        configd:help "Log sessions at periodic intervals";
+                        units "seconds";
+                        must "current() mod 10 = 0" {
+                            error-message "The periodic value must be a multiple " +
+                                          "of 10";
+                        }
+                        type uint32 {
+                            range 300..86400;
+                            configd:help "How often to raise session events (in seconds) " +
+                                         "- multiples of 10";
+                        }
+                    }
+                    leaf all-subscribers {
+                        must "not(../address-group)" {
+                            error-message "Cannot configure both 'all-subscribers' and 'address-group'";
+                        }
+                        type empty;
+                        description "Log sessions for all subscribers";
+                        configd:help "Log sessions for all subscribers";
+                    }
+                    leaf address-group {
+                        description "Log sessions if the subscribers address " +
+                                    "matches addresses in the named address-group";
+                        configd:help "The address-group identifying subscriber " +
+                                     "addresses to raise session events";
+                        type leafref {
+                            path "/resources:resources/res-group:group/" +
+                                 "res-group:address-group/res-group:tagnode";
+                        }
+                    }
+                }
+                leaf subscriber {
+                    type empty;
+                    description "Log information about the subscriber when the " +
+                                "subscriber is created and deleted";
+                    configd:help "Log on CGNAT subscriber creation and deletion";
+                }
+            }
+        }
+    }
+
+    grouping resource-warning {
+        leaf threshold {
+            description  "Configure resource level (%) above which warning is triggered";
+            configd:help "Configure resource level (%) above which warning is triggered";
+            type threshold_percent;
+            mandatory true;
+        }
+        leaf interval {
+            description  "Configure resource warning interval (seconds)";
+            configd:help "Configure resource warning interval (seconds)";
+            type timeout;
+            units seconds;
+        }
+    }
+
+    augment /service:service/nat:nat {
+        container cgnat {
+            configd:priority "315";
+            presence "Carrier-grade NAT configured";
+            description "Configuration of Carrier-grade NAT (CGNAT)";
+            configd:help "CGNAT settings";
+            configd:end "cgnat-configuration --cgnat";
+            configd:get-state "cgnat-get-state";
+            list policy {
+                description "CGNAT policy name";
+                configd:help "CGNAT policy name";
+                unique "priority";
+                key "policyname";
+                leaf policyname {
+                    description "Name of CGNAT policy";
+                    configd:help "Name of CGNAT policy";
+                    type fw-types:cgnat-policy-name {
+                        configd:help "Name of CGNAT policy";
+                    }
+                }
+                leaf priority {
+                    mandatory true;
+                    description "The priority of this policy (lower number " +
+                                "is higher priority).";
+                    configd:help "Priority of CGNAT policy";
+                    type uint32 {
+                        range 1..9999;
+                    }
+                }
+                container match {
+                    description "For configuring the source address and mask " +
+                                "that must match the subscriber's IP address " +
+                                "for it to use this policy";
+                    configd:help "Selection of CGNAT subscribers";
+                    container source {
+                        description "CGNAT source parameters";
+                        configd:help "CGNAT source parameters";
+                        leaf address-group {
+                            mandatory true;
+                            description "Source addresses in the address-group" +
+                                        "will match this policy.";
+                            configd:help "Address-group of source addresses to match";
+                            type leafref {
+                                path "/resources:resources/res-group:group/" +
+                                     "res-group:address-group/res-group:tagnode";
+                            }
+                        }
+                    }
+                }
+                container translation {
+                    description "For configuring the pool of public " +
+                                "addresses that will be used to select an " +
+                                "address to translate the subscribers source " +
+                                "address to";
+                    configd:help "CGNAT translation settings";
+                    leaf pool {
+                        mandatory true;
+                        description "The NAT address pool for public addresses";
+                        configd:help "The NAT address pool for public " +
+                                     "addresses";
+                        type leafref {
+                            path "/service:service/nat:nat/nat-pool:pool/" +
+                                 "nat-pool:poolname";
+                        }
+                    }
+                }
+                uses event-group;
+
+                container state {
+                    config false;
+                    description "CGNAT per-policy statistics";
+
+                    leaf sessions-created {
+                        description "Total number of CGNAT sessions which " +
+                                    "were created using this policy, " +
+                                    "including those destroyed. " +
+                                    "Note that this counter is only updated " +
+                                    "periodically.";
+                        type uint64;
+                    }
+                    leaf sessions-destroyed {
+                        description "Total number of this policy's CGNAT " +
+                                    "sessions which were destroyed. " +
+                                    "Note that this counter is only updated " +
+                                    "periodically.";
+                        type uint64;
+                    }
+                    leaf sub-sess-created {
+                        description "Total number of CGNAT sub-sessions which " +
+                                    "were created using this policy, " +
+                                    "including those destroyed. " +
+                                    "Note that this counter is only updated " +
+                                    "periodically.";
+                        type uint64;
+                    }
+                    leaf sub-sess-destroyed {
+                        description "Total number of this policy's CGNAT " +
+                                    "sub-sessions which were destroyed. " +
+                                    "Note that this counter is only updated " +
+                                    "periodically.";
+                        type uint64;
+                    }
+                    leaf packets-out {
+                        description "Number of packets sent out the CGNAT " +
+                                    "interface by all sessions. " +
+                                    "Note that this counter is only updated " +
+                                    "periodically.";
+                        type uint64;
+                    }
+                    leaf packets-in {
+                        description "Number of packets received into the " +
+                                    "CGNAT interface by all sessions. " +
+                                    "Note that this counter is only updated " +
+                                    "periodically.";
+                        type uint64;
+                    }
+                    leaf bytes-out {
+                        description "Number of bytes sent out the CGNAT " +
+                                    "interface by all sessions. " +
+                                    "Note that this counter is only updated " +
+                                    "periodically.";
+                        type uint64;
+                    }
+                    leaf bytes-in {
+                        description "Number of bytes received into the " +
+                                    "CGNAT interface by all sessions. " +
+                                    "Note that this counter is only updated " +
+                                    "periodically.";
+                        type uint64;
+                    }
+                    leaf unknown-source {
+                        description "Number of packets received into the " +
+                                    "CGNAT interface and translated, but " +
+                                    "from an unknown source address or port. " +
+                                    "Note that this counter is only updated " +
+                                    "periodically.";
+                        type uint64;
+                    }
+                    leaf active-subscribers {
+                        description "Number of active CGNAT subscribers " +
+                                    "using this policy.";
+                        type uint64;
+                    }
+                    leaf max-rate-subs {
+                        description "Subscriber with highest max session rate.";
+                        type types:ipv4-address;
+                    }
+                    leaf max-rate-rate {
+                        description "Highest max session rate value.";
+                        type uint64;
+                    }
+                    leaf max-rate-time {
+                        description "Highest max session rate timestamp. " +
+                                    "Time in microseconds since  " +
+                                    "01-01-1970 00:00:00.";
+                        type uint64;
+                        units "microseconds";
+                    }
+                }
+            }
+            leaf disable-hairpinning {
+                type empty;
+                description "Disable hairpinning in CGNAT device";
+                configd:help "Disable hairpinning in CGNAT device";
+            }
+            leaf snat-alg-bypass {
+                type empty;
+                description "Enable SNAT ALG traffic to bypass CGNAT";
+                configd:help "Enable SNAT ALG traffic to bypass CGNAT";
+            }
+            container session-timeout {
+                description "Configure how long to wait when the session is " +
+                            "inactive for it to be timed out. This can be " +
+                            "configured per-protocol and per-state.";
+                configd:help "Configure session timeouts when idle";
+                container tcp {
+                    description "Configure session timeouts for TCP";
+                    configd:help "Configure session timeouts for TCP";
+                    leaf partially-open {
+                        type timeout {
+                            range 10..240;
+                        }
+                        description "TCP 'partially-open' timeout in seconds";
+                        configd:help "TCP 'partially-open' timeout in seconds";
+                        default 240;
+                        reference "RFC 5382 REQ-5: 4 minutes";
+                    }
+                    leaf established {
+                        type timeout {
+                            range 30..14400;
+                        }
+                        description "TCP 'established' timeout in seconds";
+                        configd:help "TCP 'established' timeout in seconds";
+                        default 7440;
+                        reference "RFC 5382 REQ-5: 2 hours 4 minutes";
+                    }
+                    leaf partially-closed {
+                        type timeout {
+                            range 10..240;
+                        }
+                        description "TCP 'partially-closed' timeout in seconds";
+                        configd:help "TCP 'partially-closed' timeout in " +
+                                     "seconds";
+                        default 240;
+                        reference "RFC 5382 REQ-5: 4 minutes";
+                    }
+                    list port {
+                        description "Configure per-port session timeouts for TCP";
+                        configd:help "Configure per-port session timeouts for TCP";
+                        key port-number;
+                        leaf port-number {
+                            type timeout-port;
+                            description "Port number";
+                            configd:help "Port number";
+                        }
+                        leaf established {
+                            type timeout {
+                                range 10..14400;
+                            }
+                            mandatory true;
+                            description "TCP 'established' timeout in seconds";
+                            configd:help "TCP 'established' timeout in seconds";
+                        }
+                    }
+                }
+                container udp {
+                    description "Configure session timeouts for UDP";
+                    configd:help "Configure session timeouts for UDP";
+                    leaf partially-open {
+                        type timeout {
+                            range 10..240;
+                        }
+                        description "UDP 'partially-open' timeout in seconds";
+                        configd:help "UDP 'partially-open' timeout in seconds";
+                        default 30;
+                    }
+                    leaf established {
+                        type timeout {
+                            range 30..1800;
+                        }
+                        description "UDP 'established' timeout in seconds";
+                        configd:help "UDP 'established' timeout in seconds";
+                        default 300;
+                    }
+                    list port {
+                        description "Configure per-port session timeouts for UDP";
+                        configd:help "Configure per-port session timeouts for UDP";
+                        key port-number;
+                        leaf port-number {
+                            type timeout-port;
+                            description "Port number";
+                            configd:help "Port number";
+                        }
+                        leaf established {
+                            type timeout {
+                                range 10..1800;
+                            }
+                            mandatory true;
+                            description "UDP 'established' timeout in seconds";
+                            configd:help "UDP 'established' timeout in seconds";
+                        }
+                    }
+                }
+                container other {
+                    description "Configure session timeouts for non-UDP/TCP " +
+                                "protocols";
+                    configd:help "Configure session timeouts for non-UDP/TCP " +
+                                 "protocols";
+                    leaf partially-open {
+                        type timeout {
+                            range 10..240;
+                        }
+                        description "Non-TCP/UDP 'partially-open' timeout in " +
+                                    "seconds";
+                        configd:help "Non-TCP/UDP 'partially-open' timeout " +
+                                     "in seconds";
+                        default 30;
+                    }
+                    leaf established {
+                        type timeout {
+                            range 30..1800;
+                        }
+                        description "Non-TCP/UDP 'established' timeout in " +
+                                    "seconds";
+                        configd:help "Non-TCP/UDP 'established' timeout in " +
+                                     "seconds";
+                        default 240;
+                    }
+                }
+            }
+            leaf max-sessions {
+                description "The maximum number of sessions that can be " +
+                            "active at one time";
+                configd:help "System-wide maximum number of sessions";
+                type uint32 {
+                    range 1..33554432;
+                }
+                default 33554432;
+            }
+            leaf max-dest-per-session {
+                description "The maximum number of destination records that " +
+                            "can be associated with a session";
+                configd:help "Max number of destination records that can be " +
+                             "associated with a session";
+                type uint32 {
+                    range 1..128;
+                }
+                default 64;
+            }
+            container select {
+                description  "Select";
+                configd:help "Select";
+                container warning {
+                    description  "Select warnings";
+                    configd:help "Select warnings";
+                    container event {
+                        description  "Select warning event";
+                        configd:help "Select warning event";
+                        container resource-constraint {
+                            description  "Configure CGNAT resource warnings";
+                            configd:help "Configure CGNAT resource warnings";
+
+                            container public-addresses {
+                                description  "Configure public-addresses resource warning";
+                                configd:help "Configure public-addresses resource warning";
+                                presence "CGNAT resource criteria; mandatory child nodes when configured";
+                                uses resource-warning;
+                            }
+                            container mapping-table {
+                                status obsolete;
+                                description  "Configure mapping-table resource warning";
+                                configd:help "Configure mapping-table resource warning";
+                                presence "CGNAT resource criteria; mandatory child nodes when configured";
+                                uses resource-warning;
+                            }
+                            container session-table {
+                                description  "Configure session-table resource warning";
+                                configd:help "Configure session-table resource warning";
+                                presence "CGNAT resource criteria; mandatory child nodes when configured";
+                                uses resource-warning;
+                            }
+                            container subscriber-table {
+                                description  "Configure subscriber-table resource warning";
+                                configd:help "Configure subscriber-table resource warning";
+                                presence "CGNAT resource criteria; mandatory child nodes when configured";
+                                uses resource-warning;
+                            }
+                        }
+                    }
+                }
+            }
+            list interface {
+                description "The interfaces that CGNAT policies should be " +
+                            "applied to";
+                configd:help "Interfaces to apply CGNAT policies";
+                configd:allowed "vyatta-interfaces.pl --show all --skip=lo";
+                key "ifname";
+                leaf ifname {
+                    type string;
+                }
+                leaf-list policy {
+                    must "count(../../interface[policy = current()]) = 1" {
+                        error-message "A CGNAT policy can only be associated " +
+                                      "with one interface";
+                    }
+                    description "The CGNAT policy to apply on the interface. " +
+                                "Note that each CGNAT policy can only be " +
+                                "applied to one interface";
+                    configd:help "CGNAT policy to apply on the interface";
+                    type leafref {
+                        path "/service:service/nat:nat/cgnat/policy/policyname";
+                    }
+                    min-elements 1;
+                }
+            }
+            container state {
+                config false;
+                container summary {
+                    description "CGNAT global statistics";
+
+                    leaf public-address-mappings {
+                        description "Number of public addresses that are " +
+                                    "being mapped to by CGNAT subscribers on " +
+                                    "the system.";
+                        type uint64;
+                    }
+                    leaf public-address-mappings-max {
+                        status obsolete;
+                        description "The maximum number of public addresses " +
+                                    "that could be mapped to by CGNAT " +
+                                    "subscribers on the system.";
+                        type uint64;
+                    }
+                    leaf active-subscribers {
+                        description "Number of active CGNAT subscribers on " +
+                                    "the system.";
+                        type uint64;
+                    }
+                    leaf subscribers-max {
+                        description "The maximum number of CGNAT subscribers " +
+                                    "that could use the system.";
+                        type uint64;
+                    }
+                    leaf sessions-created {
+                        description "Total number of CGNAT sessions " +
+                                    "which were created, including those. " +
+                                    "Note that this counter is only updated " +
+                                    "periodically.";
+                        type uint64;
+                    }
+                    leaf sessions-destroyed {
+                        description "Total number of CGNAT sessions destroyed. " +
+                                    "Note that this counter is only updated " +
+                                    "periodically.";
+                        type uint64;
+                    }
+                    leaf sub-sess-created {
+                        description "Total number of CGNAT sub-sessions which " +
+                                    "were created, including those destroyed. " +
+                                    "Note that this counter is only updated " +
+                                    "periodically.";
+                        type uint64;
+                    }
+                    leaf sub-sess-destroyed {
+                        description "Total number of CGNAT sub-sessions " +
+                                    "destroyed. " +
+                                    "Note that this counter is only updated " +
+                                    "periodically.";
+                        type uint64;
+                    }
+                    leaf sessions-3-tuple-active {
+                        description "Total number of active CGNAT sessions.";
+                        type uint64;
+                    }
+                    leaf sessions-5-tuple-active {
+                        description "Total number of active CGNAT " +
+                                    "sub-sessions.";
+                        type uint64;
+                    }
+                    leaf sessions-table-max-size {
+                        description "The maximum size of the session table.";
+                        type uint64;
+                    }
+                    leaf sessions-table-full {
+                        description "Set to true if the session table is full.";
+                        type boolean;
+                    }
+                    leaf packets-out {
+                        description "Number of packets sent out the CGNAT " +
+                                    "interface by all sessions " +
+                                    "Note that this counter is only updated " +
+                                    "periodically.";
+                        type uint64;
+                    }
+                    leaf packets-in {
+                        description "Number of packets received into the " +
+                                    "CGNAT interface by all sessions. " +
+                                    "Note that this counter is only updated " +
+                                    "periodically.";
+                        type uint64;
+                    }
+                    leaf bytes-out {
+                        description "Number of bytes sent out the CGNAT " +
+                                    "interface by all sessions. " +
+                                    "Note that this counter is only updated " +
+                                    "periodically.";
+                        type uint64;
+                    }
+                    leaf bytes-in {
+                        description "Number of bytes received into the " +
+                                    "CGNAT interface by all sessions. " +
+                                    "Note that this counter is only updated " +
+                                    "periodically.";
+                        type uint64;
+                    }
+                    leaf unknown-source {
+                        description "Number of packets received into the " +
+                                    "CGNAT interface and translated, but " +
+                                    "from an unknown source address or port. " +
+                                    "Note that this counter is only updated " +
+                                    "periodically.";
+                        type uint64;
+                    }
+                    leaf packets-hairpinned {
+                        description "Number of packets hairpinned by CGNAT.";
+                        type uint64;
+                    }
+                    leaf packets-not-cgnat {
+                        description "Received packets not translated by CGNAT.";
+                        type uint64;
+                    }
+                    leaf pcp-ok {
+                        description "Successful PCP requests.";
+                        type uint64;
+                    }
+                    leaf pcp-fail {
+                        description "Unsuccessful PCP requests.";
+                        type uint64;
+                    }
+                    leaf sess-ht-created {
+                        description "Number of destination address/port hash " +
+                                    "tables created.";
+                        type uint64;
+                    }
+                    leaf sess-ht-destroyed {
+                        description "Number of destination address/port hash " +
+                                    "tables destroyed.";
+                        type uint64;
+                    }
+                    leaf pool-addr-echo-req {
+                        description "ICMP Echo Request for a CGNAT pool address";
+                        type uint64;
+                    }
+                }
+                container errors {
+                    list error-causes {
+                        key cause;
+                        leaf cause {
+                            type cgnat-errors;
+                        }
+                        leaf in-count {
+                            description "Count of errors for the 'in' " +
+                                        "direction (i.e. from subscriber)";
+                            type uint64;
+                        }
+                        leaf out-count {
+                            description "Count of errors for the 'out' " +
+                                        "direction (i.e. to subscriber)";
+                            type uint64;
+                        }
+                    }
+                }
+            }
+            container log {
+                description  "Specify logging type";
+                configd:help "Specify logging type";
+                container event {
+                    description  "Log events";
+                    configd:help "Log events";
+                    container session {
+                        presence "Session logging enabled";
+                        description  "Enable session logging";
+                        configd:help "Enable session logging";
+                    }
+                    container port-block-allocation {
+                        presence "Port block allocation logging enabled";
+                        description  "Enable port block logging";
+                        configd:help "Enable port block logging";
+                    }
+                    container subscriber {
+                        presence "Subscriber logging enabled";
+                        description  "Enable subscriber logging";
+                        configd:help "Enable subscriber logging";
+                    }
+                    container resource-constraint {
+                        presence "Resource constraint logging enabled";
+                        description  "Enable resource constraint logging";
+                        configd:help "Enable resource constraint logging";
+                    }
+                }
+            }
+            container export {
+                description  "Enable export";
+                configd:help "Enable export";
+
+                container event {
+                    description  "Export events";
+                    configd:help "Export events";
+                    container session {
+                        description  "Export session events";
+                        configd:help "Export session events";
+                        uses cgnat-log-type;
+                    }
+                    container port-block-allocation {
+                        description  "Export port block events";
+                        configd:help "Export port block events";
+                        uses cgnat-log-type;
+                    }
+                    container subscriber {
+                        description  "Export subscriber events";
+                        configd:help "Export subscriber events";
+                        uses cgnat-log-type;
+                    }
+                    container resource-constraint {
+                        description  "Export resource constraint events";
+                        configd:help "Export resource constraint events";
+                        uses cgnat-log-type;
+                    }
+                }
+            }
+            container cpu-affinity {
+                description  "Assign a dedicated core to CGNAT";
+                configd:help "Assign a dedicated core to CGNAT";
+                container event {
+                    description  "Process events on the core";
+                    configd:help "Process events on the core";
+
+                    leaf session {
+                        description  "Number of core to process session events on";
+                        configd:help "Number of core to process session events on";
+                        type uint16;
+                    }
+                }
+            }
+        }
+    }
+
+    augment /service:service/nat:nat/cgnat/export/event/port-block-allocation/using/kafka/with {
+        list key-field {
+            description  "Configure Kafka key fields";
+            configd:help "Configure Kafka key fields";
+            key name;
+            leaf name {
+                description  "Key name";
+                configd:help "Key name";
+                type enumeration {
+                    enum "cgn-instance" {
+                        description  "Use CGN instance as a Kafka key";
+                        configd:help "Use CGN instance as a Kafka key";
+                    }
+                    enum "subscriber-ip-address" {
+                        description  "Use subscriber IP address as a Kafka key";
+                        configd:help "Use subscriber IP address as a Kafka key";
+                    }
+                    enum "public-ip-address" {
+                        description  "Use public IP address as a Kafka key";
+                        configd:help "Use public IP address as a Kafka key";
+                    }
+                }
+            }
+        }
+    }
+
+    augment /service:service/nat:nat/cgnat/export/event/session/using/kafka/with {
+        list key-field {
+            description  "Configure Kafka key fields";
+            configd:help "Configure Kafka key fields";
+            key name;
+            leaf name {
+                description  "Key name";
+                configd:help "Key name";
+                type enumeration {
+                    enum "cgn-instance" {
+                        description  "Use CGN instance as a Kafka key";
+                        configd:help "Use CGN instance as a Kafka key";
+                    }
+                    enum "session-id" {
+                        description  "Use session ID as a Kafka key";
+                        configd:help "Use session ID as a Kafka key";
+                    }
+                    enum "sub-session-id" {
+                        description  "Use sub session ID as a Kafka key";
+                        configd:help "Use sub session ID as a Kafka key";
+                    }
+                    enum "ip-protocol" {
+                        description  "Use IP protocol as a Kafka key";
+                        configd:help "Use IP protocol as a Kafka key";
+                    }
+                    enum "subscriber-ip-address" {
+                        description  "Use subscriber IP address as a Kafka key";
+                        configd:help "Use subscriber IP address as a Kafka key";
+                    }
+                    enum "subscriber-port" {
+                        description  "Use subscriber port as a Kafka key";
+                        configd:help "Use subscriber port as a Kafka key";
+                    }
+                    enum "public-ip-address" {
+                        description  "Use public IP address as a Kafka key";
+                        configd:help "Use public IP address as a Kafka key";
+                    }
+                    enum "public-port" {
+                        description  "Use public port as a Kafka key";
+                        configd:help "Use public port as a Kafka key";
+                    }
+                    enum "destination-ip-address" {
+                        description  "Use destination IP address as a Kafka key";
+                        configd:help "Use destination IP address as a Kafka key";
+                    }
+                    enum "destination-port" {
+                        description  "Use destination port as a Kafka key";
+                        configd:help "Use destination port as a Kafka key";
+                    }
+                    enum "interface" {
+                        description  "Use interface as a Kafka key";
+                        configd:help "Use interface as a Kafka key";
+                    }
+                }
+            }
+        }
+    }
+
+    augment /service:service/nat:nat/cgnat/export/event/subscriber/using/kafka/with {
+        list key-field {
+            description  "Configure Kafka key fields";
+            configd:help "Configure Kafka key fields";
+            key name;
+            leaf name {
+                description  "Key name";
+                configd:help "Key name";
+                type enumeration {
+                    enum "cgn-instance" {
+                        description  "Use CGN instance as a Kafka key";
+                        configd:help "Use CGN instance as a Kafka key";
+                    }
+                    enum "subscriber-ip-address" {
+                        description  "Use subscriber IP address as a Kafka key";
+                        configd:help "Use subscriber IP address as a Kafka key";
+                    }
+                }
+            }
+        }
+    }
+
+    augment /service:service/nat:nat/cgnat/export/event/resource-constraint/using/kafka/with {
+        list key-field {
+            description  "Configure Kafka key fields";
+            configd:help "Configure Kafka key fields";
+            key name;
+            leaf name {
+                description  "Key name";
+                configd:help "Key name";
+                type enumeration {
+                    enum "cgn-instance" {
+                        description  "Use CGN instance as a Kafka key";
+                        configd:help "Use CGN instance as a Kafka key";
+                    }
+                }
+            }
+        }
+    }
+
+    augment /system:system {
+        container export {
+            configd:priority "315";
+            description  "Configure exports";
+            configd:help "Configure exports";
+            configd:end "cgnat-configuration --export";
+            container kafka {
+                description  "Configure Kafka exporter";
+                configd:help "Configure Kafka exporter";
+                list cluster {
+                    max-elements 1;
+                    description  "Configure a Kafka cluster";
+                    configd:help "Configure a Kafka cluster";
+                    key clustername;
+                    leaf clustername {
+                        type string {
+                            length 1..32;
+                            pattern '[a-zA-Z0-9._-]*' {
+                                error-message "Use only alphanumeric characters, dot, hyphen, or underscore";
+                            }
+                        }
+                    }
+                    container bootstrap {
+                        description  "Configure cluster bootstrap addresses";
+                        configd:help "Configure cluster bootstrap addresses";
+                        list ipv4-address {
+                            description  "Bootstrap IPv4 address";
+                            configd:help "Bootstrap IPv4 address";
+                            max-elements 10;
+                            key address;
+                            leaf address {
+                                type types:ipv4-address;
+                            }
+                        }
+                        list ipv6-address {
+                            description  "Bootstrap IPv6 address";
+                            configd:help "Bootstrap IPv6 address";
+                            max-elements 10;
+                            key address;
+                            leaf address {
+                                type types:ipv6-address;
+                            }
+                        }
+                        must "ipv4-address or ipv6-address" {
+                            error-message "Configure at least one ipv4-address"
+                                        + " or one ipv6-address";
+                        }
+                        uses routing:routing-instance-or-default-leaf {
+                            refine routing-instance {
+                                default default;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    rpc get-subscriber-information {
+        description "Get information on CGNAT subscribers.";
+        configd:call-rpc "cgnat-get-subscriber-rpc";
+        input {
+            leaf ip-address-prefix {
+                description "Get subscriber information for subscribers " +
+                            "matching this IP address with optional mask. If " +
+                            "not provided then all subscribers will be " +
+                            "selected. Note that if a specific IP address is " +
+                            "provided then 'start-index' and 'max-entries' " +
+                            "are ignored.";
+                type ipv4-addr-or-prefix;
+            }
+            leaf start-index {
+                description "The index of the first entry to return. " +
+                            "Indexes start at 1. The default is 1.";
+                type uint64;
+            }
+            leaf max-entries {
+                description "The maximum number of entries to return. If not " +
+                            "provided then all entries will be returned.";
+                type uint64;
+            }
+        }
+        output {
+            list subscribers {
+                key subscriber;
+                leaf subscriber {
+                    description "The IPv4 address that is assigned to and " +
+                                "identifies a subscriber.";
+                    type types:ipv4-address;
+                }
+                leaf paired-address {
+                    description "The IPv4 address that the subscriber is " +
+                                "being mapped to.";
+                    type types:ipv4-address;
+                }
+                leaf duration {
+                    description "The amount of time that this subscriber has " +
+                                "been active (in microseconds).";
+                    units "microseconds";
+                    type uint64;
+                }
+                leaf expired {
+                    description "Set to true if the subscriber entry has " +
+                                "been expired.";
+                    type boolean;
+                }
+                leaf active-blocks {
+                    description "The number of active address blocks " +
+                                "allocated to the subscriber.";
+                    type uint64;
+                }
+                leaf active-mappings {
+                    description "The number of active CGNAT address " +
+                                "translation mappings this subscriber is " +
+                                "using.";
+                    type uint64;
+                }
+                leaf total-mapping-requests {
+                    description "Total number of CGNAT mapping requests made " +
+                                "by this subscriber(including unsuccessful " +
+                                "requests).";
+                    type uint64;
+                }
+                leaf total-mapping-failures {
+                    description "Total number of CGNAT mapping requests by " +
+                                "this subscriber that were failed.";
+                    type uint64;
+                }
+                leaf sessions-created {
+                    description "Total number of CGNAT sessions which " +
+                                "were created by this subscriber, including " +
+                                "those destroyed.";
+                    type uint64;
+                }
+                leaf sessions-destroyed {
+                    description "Total number of CGNAT sessions of this " +
+                                "subscriber which were destroyed.";
+                    type uint64;
+                }
+                leaf session-rate-20s {
+                    description "The rate (in sessions-per-second) of " +
+                                "session creation by this subscriber over " +
+                                "a recent 20 second period.";
+                    units "sessions-per-second";
+                    type uint64;
+                }
+                leaf session-rate-1m {
+                    description "The rate (in sessions-per-second) of " +
+                                "session creation by this subscriber over " +
+                                "a recent 1 minute period.";
+                    units "sessions-per-second";
+                    type uint64;
+                }
+                leaf session-rate-5m {
+                    description "The rate (in sessions-per-second) of " +
+                                "session creation by this subscriber over " +
+                                "a recent 5 minute period.";
+                    units "sessions-per-second";
+                    type uint64;
+                }
+                leaf session-rate-max {
+                    description "The maximum rate (in sessions-per-second) " +
+                                "of session creation by this subscriber " +
+                                "(calculated over 20 second periods).";
+                    units "sessions-per-second";
+                    type uint64;
+                }
+                leaf session-rate-max-time {
+                    description "The time that the maximum session creation " +
+                                "rate in 'session-rate-max' occurred. " +
+                                "Time in microseconds since  " +
+                                "01-01-1970 00:00:00.";
+                    units "microseconds";
+                    type uint64;
+                }
+                leaf session-rate-1m-max {
+                    description "The maximum rate (in sessions-per-second) " +
+                                "of session creation by this subscriber " +
+                                "(calculated over 1 minute periods).";
+                    units "sessions-per-second";
+                    type uint64;
+                }
+                leaf session-rate-1m-max-time {
+                    description "The time that the maximum session creation " +
+                                "rate in 'session-rate-1m-max' occurred. " +
+                                "Time in microseconds since  " +
+                                "01-01-1970 00:00:00.";
+                    units "microseconds";
+                    type uint64;
+                }
+                leaf sub-sess-created {
+                    description "Total number of CGNAT sub-sessions " +
+                                "which were created by this subscriber, " +
+                                "including those destroyed.";
+                    type uint64;
+                }
+                leaf sub-sess-destroyed {
+                    description "Total number of CGNAT sub-sessions of " +
+                                "this subscriber which were destroyed.";
+                    type uint64;
+                }
+                leaf packets-out {
+                    description "Number of packets sent out the CGNAT " +
+                                "interface by this subscriber. " +
+                                "Note that this counter is only updated " +
+                                "periodically.";
+                    type uint64;
+                }
+                leaf packets-in {
+                    description "Number of packets received into the " +
+                                "CGNAT interface by this subscriber. " +
+                                "Note that this counter is only updated " +
+                                "periodically.";
+                    type uint64;
+                }
+                leaf bytes-out {
+                    description "Number of bytes sent out the CGNAT " +
+                                "interface by this subscriber. " +
+                                "Note that this counter is only updated " +
+                                "periodically.";
+                    type uint64;
+                }
+                leaf bytes-in {
+                    description "Number of bytes received into the " +
+                                "CGNAT interface by this subscriber. " +
+                                "Note that this counter is only updated " +
+                                "periodically.";
+                    type uint64;
+                }
+                leaf unknown-source {
+                    description "Number of packets received into the " +
+                                "CGNAT interface and translated, but " +
+                                "from an unknown source address or port. " +
+                                "Note that this counter is only updated " +
+                                "periodically.";
+                    type uint64;
+                }
+                leaf assigned-ports {
+                    description "The number of ports currently assigned " +
+                                "to this subscriber.";
+                    type uint64;
+                }
+                list protocols {
+                    key protocol;
+                    leaf protocol {
+                        type pool-protocol;
+                    }
+                    leaf active-mappings {
+                        description "The number of active address " +
+                                    "translation mappings for this protocol " +
+                                    "and subscriber.";
+                        type uint64;
+                    }
+                }
+            }
+        }
+    }
+
+    rpc get-public-address-information {
+        description "Get information on active CGNAT public addresses.";
+        configd:call-rpc "cgnat-get-public-rpc";
+        input {
+            leaf ip-address-prefix {
+                description "Get information for active public addresses " +
+                            "matching this IP address with optional mask. If " +
+                            "not provided then all public addresses will be " +
+                            "selected. Note that if a specific IP address is " +
+                            "provided then 'start-index' and 'max-entries' " +
+                            "are ignored.";
+                type ipv4-addr-or-prefix;
+            }
+            leaf start-index {
+                description "The index of the first entry to return. " +
+                            "Indexes start at 1. The default is 1.";
+                type uint64;
+            }
+            leaf max-entries {
+                description "The maximum number of entries to return. If not " +
+                            "provided then all entries will be returned.";
+                type uint64;
+            }
+        }
+        output {
+            list public-addresses {
+                key public-address;
+                leaf public-address {
+                    description "The Public IPv4 address that has been " +
+                                "assigned to subscribers.";
+                    type types:ipv4-address;
+                }
+                leaf total-port-blocks {
+                    description "The total number of port blocks that " +
+                                "can be allocated for this public address.";
+                    type uint16;
+                }
+                leaf active-port-blocks {
+                    description "The number of active address blocks in " +
+                                "use for this public address.";
+                    type uint16;
+                }
+                leaf start-port {
+                    description "The first port that will be allocated " +
+                                "for this public address.";
+                    type inet:port-number;
+                }
+                leaf end-port {
+                    description "The last port that will be allocated " +
+                                "for this public address.";
+                    type inet:port-number;
+                }
+            }
+        }
+    }
+
+    grouping session-filter {
+        leaf subscriber-ip-address-prefix {
+            description "Filter subscriber IP address with optional mask. If " +
+                        "not provided then all subscribers will be selected.";
+            type ipv4-addr-or-prefix;
+        }
+        leaf subscriber-port {
+            description "Filter ports of the subscriber. If not provided " +
+                        "then all ports of the subscriber will be selected.";
+            type inet:port-number;
+        }
+        leaf interface {
+            description "Filter the interface name the session is associated " +
+                        "with. If not provided then all interfaces will be " +
+                        "selected.";
+            type string;
+        }
+        leaf public-ip-address-prefix {
+            description "Filter public IP address with optional mask. If not " +
+                        "provided then all public addresses will be selected.";
+            type ipv4-addr-or-prefix;
+        }
+        leaf public-port {
+            description "Filter public port. If not provided then all public " +
+                        "ports will be selected.";
+            type inet:port-number;
+        }
+        leaf destination-ip-address-prefix {
+            description "Filter destination IP address with optional mask. " +
+                        "If not provided then all destination addresses will " +
+                        "be selected. Only applies to sessions for which "+
+                        "destination address is known";
+            type ipv4-addr-or-prefix;
+        }
+        leaf destination-port {
+            description "Filter destination port. If not provided then all " +
+                        "destination ports will be selected. Only applies to " +
+                        "sessions for which destination port is known";
+            type inet:port-number;
+        }
+        leaf session-id {
+            description "Filter the ID assigned to the session. If not " +
+                        "provided then all sessions will be selected.";
+            type uint64;
+        }
+        leaf sub-session-id {
+            description "Filter with the sub ID assigned to the destination " +
+                        "of a session. This must only be provided if " +
+                        "'session-id' is provided. If not provided then all " +
+                        "destinations of a given session will be selected.";
+            type uint64 {
+                range 1..max;
+            }
+            must "../session-id";
+        }
+        leaf pool-name {
+            description "Filter the name of the pool that the session's " +
+                        "public address was allocated from. If not provided " +
+                        "then all pools will be selected.";
+            type fw-types:nat-pool-name;
+        }
+    }
+
+    grouping target-session {
+        container target {
+            presence "Target session";
+            description "Start returning entries after the session " +
+                        "specified by address, port, protocol and interface.";
+
+            leaf address {
+                description "Return entries after the session specified by " +
+                            "target address";
+                type types:ipv4-address;
+                mandatory true;
+            }
+            leaf port {
+                description "Return entries after the session specified by " +
+                            "target port";
+                type inet:port-number;
+                mandatory true;
+            }
+            leaf protocol {
+                description "Return entries after the session specified by " +
+                            "target protocol";
+                type uint8;
+                mandatory true;
+            }
+            leaf interface {
+                description "Return entries after the session specified by " +
+                            "target interface";
+                type types:interface-ifname;
+                mandatory true;
+            }
+        }
+    }
+
+    rpc get-session-information {
+        description "Get information about active CGNAT sessions.";
+        configd:call-rpc "cgnat-get-sessions-rpc";
+        input {
+            uses session-filter;
+            uses target-session;
+            leaf req-entries {
+                description "The requested number of entries to return. If " +
+                            "not provided then all entries will be returned. " +
+                            "Note that more entries than requested may be " +
+                            "returned due to providing all related " +
+                            "destination entries.";
+                type uint64;
+            }
+        }
+        output {
+            list sessions {
+                key id;
+                leaf id {
+                    description "A unique ID. This is used as the key " +
+                                "(instead of 'session-id' and " +
+                                "'sub-session-id').";
+                    type uint64;
+                }
+                leaf session-id {
+                    description "The identifier assigned to the session. " +
+                                "This is the same for identical subscriber " +
+                                "addresses and ports.";
+                    type uint64;
+                }
+                leaf sub-session-id {
+                    description "The sub-identifier assigned to the session. " +
+                                "It has a different number for different " +
+                                "destinations for the same public address " +
+                                "and port. This will be 0 if destination " +
+                                "address tracking is not enabled.";
+                    type uint32;
+                }
+                leaf ip-protocol {
+                    description "The IP protocol associated with the session.";
+                    type uint8;
+                }
+                leaf state {
+                    description "The state of the session.";
+                    type enumeration {
+                        enum "opening";
+                        enum "established";
+                        enum "transitory";
+                        enum "closing";
+                        enum "closed";
+                    }
+                }
+                leaf state-history {
+                    description "The state history of the session. Note: " +
+                                "this only appears if destination address " +
+                                "tracking is enabled and the protocol is " +
+                                "TCP. The value is a bit-map as follows: " +
+                                "Bit 0 (0x01): reached established state; " +
+                                "Bit 1 (0x02): forward FIN flag seen; " +
+                                "Bit 2 (0x04): backward FIN flag seen; " +
+                                "Bit 3 (0x08): forward RST flag seen; " +
+                                "Bit 4 (0x10): backward RST flag seen; " +
+                                "Bit 5 (0x20): forward ACK flag seen; " +
+                                "Bit 6 (0x40): backward ACK flag seen; " +
+                                "Bit 7 (0x80): forwards direction is in.";
+                    type uint32;
+                }
+                leaf subscriber-ip-address {
+                    description "The subscriber IP address of the session.";
+                    type types:ipv4-address;
+                }
+                leaf subscriber-port {
+                    description "The subscriber port of the session.";
+                    type inet:port-number;
+                }
+                leaf public-ip-address {
+                    description "The public IP address of the session.";
+                    type types:ipv4-address;
+                }
+                leaf public-port {
+                    description "The public port of the session.";
+                    type inet:port-number;
+                }
+                leaf interface {
+                    description "The name of the interface associated with " +
+                                "the session.";
+                    type string;
+                }
+                leaf pool-name {
+                    description "The pool that the session's public address " +
+                                "was allocated from.";
+                    type fw-types:nat-pool-name;
+                }
+                leaf destination-ip-address {
+                    description "The destination IP address of the session. " +
+                                "Note this only appears if destination " +
+                                "address tracking is enabled.";
+                    type types:ipv4-address;
+                }
+                leaf destination-port {
+                    description "The destination port of the session. Note " +
+                                "this only appears if the destination port " +
+                                "is known, which will happen if destination " +
+                                "address tracking is enabled or only one " +
+                                "destination address is in use by the session.";
+                    type inet:port-number;
+                }
+                leaf timeout {
+                    description "The current timeout value that the session " +
+                                "has (in seconds).";
+                    type uint32;
+                    units "seconds";
+                }
+                leaf max-timeout {
+                    description "The maximum timeout value for the current " +
+                                "state (in seconds).";
+                    type uint32;
+                    units "seconds";
+                }
+                leaf start-time {
+                    description "The time the session started, " +
+                                "in microseconds since  " +
+                                "01-01-1970 00:00:00.";
+                    units "microseconds";
+                    type uint64;
+                }
+                leaf duration {
+                    description "The amount of time that this session has " +
+                                "been active (in microseconds).";
+                    units "microseconds";
+                    type uint64;
+                }
+                leaf rtt-internal {
+                    description "The internal round trip time calculated " +
+                                "for this session (in microseconds). Note " +
+                                "this only appears if destination address " +
+                                "tracking is enabled and the protocol is TCP.";
+                    units "microseconds";
+                    type uint64;
+                }
+                leaf rtt-external {
+                    description "The external round trip time calculated for " +
+                                "this session (in microseconds). Note " +
+                                "this only appears if destination address " +
+                                "tracking is enabled and the protocol is TCP.";
+                    units "microseconds";
+                    type uint64;
+                }
+                leaf packets-out {
+                    description "Number of packets sent out the CGNAT " +
+                                "interface by all sessions.";
+                    type uint64;
+                }
+                leaf packets-in {
+                    description "Number of packets received into the " +
+                                "CGNAT interface by all sessions.";
+                    type uint64;
+                }
+                leaf bytes-out {
+                    description "Number of bytes sent out the CGNAT " +
+                                "interface by all sessions.";
+                    type uint64;
+                }
+                leaf bytes-in {
+                    description "Number of bytes received into the " +
+                                "CGNAT interface by all sessions.";
+                    type uint64;
+                }
+                leaf unknown-source {
+                    description "Number of packets received into the " +
+                                "CGNAT interface and translated, but " +
+                                "from an unknown source address or port.";
+                    type uint64;
+                }
+                leaf expired {
+                    description "Set to true if the entry has been " +
+                                "expired.";
+                    type boolean;
+                }
+            }
+        }
+    }
+
+    rpc clear-sessions {
+        description "Delete sessions";
+        configd:call-rpc "cgnat-clear-sessions-rpc";
+        input {
+            uses session-filter;
+        }
+    }
+    rpc clear-session-statistics {
+        description "Clear CGNAT session statistics";
+        configd:call-rpc "cgnat-clear-session-stats-rpc";
+        input {
+            uses session-filter;
+        }
+    }
+    rpc clear-subscriber-statistics {
+        description "Clear CGNAT subscriber statistics";
+        configd:call-rpc "cgnat-clear-subs-stats-rpc";
+        input {
+            leaf ip-address-prefix {
+                description "Clear statistics for subscribers " +
+                            "matching this IP address with optional mask. If " +
+                            "not provided then all subscribers will be " +
+                            "cleared.";
+                type ipv4-addr-or-prefix;
+            }
+        }
+    }
+    rpc clear-policy-statistics {
+        description "Clear CGNAT policy statistics";
+        configd:call-rpc "cgnat-clear-policy-stats-rpc";
+        input {
+            leaf policyname {
+                description "Name of CGNAT policy";
+                type fw-types:cgnat-policy-name;
+            }
+        }
+    }
+    rpc clear-errors {
+        description "Clear CGNAT error counters";
+        configd:call-rpc "cgnat-clear-errors-rpc";
+    }
+}
